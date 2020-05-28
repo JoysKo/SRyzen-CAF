@@ -12,6 +12,10 @@ menuconfig INPUT_TOUCHSCREEN
 if INPUT_TOUCHSCREEN
 
 source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
+source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
+source "drivers/input/touchscreen/ft5x46/Kconfig"
+source "drivers/input/touchscreen/gt9xx/Kconfig"
+source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 
 # HMI_L8867_A01
 source "drivers/input/touchscreen/nvt_touch_a/Kconfig"
@@ -1272,14 +1276,14 @@ config TOUCHSCREEN_ST
 
 	  If unsure, say N.
 
-config TOUCHSCREEN_FOCAL_FT8719
-        bool "Focaltech Touchscreen"
-		depends on I2C
-		default n
-		help
-		  Say Y here if you have Focaltech touch panel.
-		  If unsure, say N.		  
-	  
+config TOUCHSCREEN_NT36XXX
+	bool "Novatech Touchscreen Driver"
+	depends on I2C
+	help
+	  Say Y here if you have a STMicroelectronics Touchscreen.
+
+	  If unsure, say N.
+
 source "drivers/input/touchscreen/st/Kconfig"
 
 endif

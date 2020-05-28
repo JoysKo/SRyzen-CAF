@@ -1,5 +1,5 @@
 /* Copyright (c) 2016-2017, 2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2020 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -84,6 +84,11 @@
 #define BATT_THERM_NUM_COEFFS		3
 
 #define MAX_CC_STEPS			20
+
+#define VBAT_RESTART_FG_EMPTY_UV		3700000
+#define TEMP_THR_RESTART_FG		150
+#define RESTART_FG_START_WORK_MS		1000
+#define RESTART_FG_WORK_MS		2000
 
 /* Debug flag definitions */
 enum fg_debug_flag {
@@ -302,6 +307,7 @@ struct fg_batt_props {
 	int		float_volt_uv;
 	int		vbatt_full_mv;
 	int		fastchg_curr_ma;
+	int		nom_cap_uah;
 };
 
 struct fg_cyc_ctr_data {
@@ -385,6 +391,22 @@ static const struct fg_pt fg_tsmc_osc_table[] = {
 	{  90,		444992 },
 };
 
+#define BATT_MA_AVG_SAMPLES		8
+struct batt_params {
+	bool		update_now;
+	int		batt_raw_soc;
+	int		batt_soc;
+	int		samples_num;
+	int		samples_index;
+	int		batt_ma_avg_samples[BATT_MA_AVG_SAMPLES];
+	int		batt_ma_avg;
+	int		batt_ma_prev;
+	int		batt_ma;
+	int		batt_mv;
+	int		batt_temp;
+	struct timespec	last_soc_change_time;
+};
+
 struct fg_chip {
 	struct device		*dev;
 	struct pmic_revid_data	*pmic_rev_id;
@@ -439,7 +461,6 @@ struct fg_chip {
 	int			last_recharge_volt_mv;
 	int			delta_temp_irq_count;
 	int			esr_timer_charging_default[NUM_ESR_TIMERS];
-	int                     battery_full_design;
 	enum slope_limit_status	slope_limit_sts;
 	enum esr_filter_status	esr_flt_sts;
 	bool			profile_available;
@@ -447,9 +468,6 @@ struct fg_chip {
 	bool			battery_missing;
 	bool			fg_restarting;
 	bool			charge_full;
-#if defined (CONFIG_KERNEL_XIAOMI_A26X) || defined (CONFIG_KERNEL_XIAOMI_LAVENDER)
-	bool			report_full;
-#endif
 	bool			recharge_soc_adjusted;
 	bool			ki_coeff_dischg_en;
 	bool			esr_fcc_ctrl_en;
@@ -459,14 +477,22 @@ struct fg_chip {
 	bool			use_ima_single_mode;
 	bool			qnovo_enable;
 	bool			suspended;
+	bool			report_full;
+	bool			empty_restart_fg;
+	struct batt_params	param;
+	struct delayed_work	soc_monitor_work;
+
 	struct completion	soc_update;
 	struct completion	soc_ready;
 	struct delayed_work	profile_load_work;
 	struct work_struct	status_change_work;
 	struct delayed_work	ttf_work;
+	struct delayed_work	esr_timer_config_work;
 	struct delayed_work	sram_dump_work;
+	struct delayed_work	soc_work;
 	struct work_struct	esr_filter_work;
 	struct alarm		esr_filter_alarm;
+	struct delayed_work	empty_restart_fg_work;
 	ktime_t			last_delta_temp_time;
 };
 
@@ -527,4 +553,5 @@ extern void fg_circ_buf_clr(struct fg_circ_buf *);
 extern int fg_circ_buf_avg(struct fg_circ_buf *, int *);
 extern int fg_circ_buf_median(struct fg_circ_buf *, int *);
 extern int fg_lerp(const struct fg_pt *, size_t, s32, s32 *);
+extern int fg_dma_mem_req(struct fg_chip *, bool);
 #endif

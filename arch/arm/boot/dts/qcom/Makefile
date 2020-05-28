@@ -223,6 +223,9 @@ dtb-$(CONFIG_KERNEL_XIAOMI_WHYRED) := sdm636-mtp_whyred.dtb
 endif
 
 dtb-$(CONFIG_ARCH_SDM630) += sdm630-rumi.dtb \
+	sda636-pm660a-rcm.dtb \
+	platina-sdm660.dtb \
+	nitrogen-sdm636.dtb \
 	sdm630-pm660a-rumi.dtb \
 	sdm630-mtp.dtb \
 	sdm630-usbc-audio-mtp.dtb \

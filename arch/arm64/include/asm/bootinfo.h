@@ -9,6 +9,9 @@
 #ifndef __ASMARM_BOOTINFO_H
 #define __ASMARM_BOOTINFO_H
 
+#define HW_DEVID_VERSION_SHIFT 8
+#define HW_DEVID_VERSION_MASK  0xF00UL
+
 typedef enum {
 	PU_REASON_EVENT_HWRST,
 	PU_REASON_EVENT_SMPL,
@@ -33,13 +36,13 @@ enum {
 
 typedef enum {
 	POFF_REASON_EVENT_SOFT,
-	POFF_REASON_EVENT_PS_HOLD = 1,
+	POFF_REASON_EVENT_PS_HOLD,
 	POFF_REASON_EVENT_PMIC_WD,
 	POFF_REASON_EVENT_GP1_KPD1,
 	POFF_REASON_EVENT_GP2_KPD2,
 	POFF_REASON_EVENT_KPDPWR_AND_RESIN,
 	POFF_REASON_EVENT_RESIN_N,
-	POFF_REASON_EVENT_KPDPWR_N = 7,
+	POFF_REASON_EVENT_KPDPWR_N,
 	POFF_REASON_EVENT_RESEVER1,
 	POFF_REASON_EVENT_RESEVER2,
 	POFF_REASON_EVENT_RESEVER3,
@@ -82,6 +85,10 @@ typedef enum {
 
 void set_poweroff_reason(int poweroff_reason);
 unsigned int get_powerup_reason(void);
+<<<<<<< HEAD
 bool is_abnormal_powerup(void);
+=======
+int is_abnormal_powerup(void);
+>>>>>>> c8943e67a6d6 (Kernel: Xiaomi kernel changes for MI MAX3 and MI 8Lite Android R)
 void set_powerup_reason(unsigned int powerup_reason);
 #endif

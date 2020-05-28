@@ -44,6 +44,9 @@
 #include <linux/fb.h>
 #include <linux/notifier.h>
 #endif
+#include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
+#include <linux/uaccess.h>
 
 #define SYNAPTICS_TCM_ID_PRODUCT (1 << 0)
 #define SYNAPTICS_TCM_ID_VERSION 0x0100
@@ -53,6 +56,9 @@
 
 #define TOUCH_INPUT_NAME "synaptics_tcm_touch"
 #define TOUCH_INPUT_PHYS_PATH "synaptics_tcm/touch_input"
+#define PINCTRL_STATE_ACTIVE "pmx_ts_active"
+#define PINCTRL_STATE_SUSPEND "pmx_ts_suspend"
+
 
 #define RD_CHUNK_SIZE 0 /* read length limit in bytes, 0 = unlimited */
 #define WR_CHUNK_SIZE 0 /* write length limit in bytes, 0 = unlimited */
@@ -60,6 +66,7 @@
 #define MESSAGE_HEADER_SIZE 4
 #define MESSAGE_MARKER 0xa5
 #define MESSAGE_PADDING 0x5a
+#define LOCKDOWN_SIZE 8
 
 #define LOGx(func, dev, log, ...) \
 	func(dev, "%s: " log, __func__, ##__VA_ARGS__)
@@ -72,27 +79,6 @@
 #define LOGN(dev, log, ...) LOGx(dev_notice, dev, log, ##__VA_ARGS__)
 #define LOGW(dev, log, ...) LOGy(dev_warn, dev, log, ##__VA_ARGS__)
 #define LOGE(dev, log, ...) LOGy(dev_err, dev, log, ##__VA_ARGS__)
-
-
-
-#if 1
-#define LOGV(log, ...) \
-	printk(KERN_ERR "[synaptics] %s (line %d): " log, __func__, __LINE__, ##__VA_ARGS__)
-#else
-#define LOGV(log, ...) {}
-#endif
-
-#if 0
-#define LOG_ENTRY() \
-	printk(KERN_WARNING "[synaptics][debug] %s (file %s line %d) Entry.\n", __func__, __FILE__, __LINE__)
-#define LOG_DONE() \
-	printk(KERN_WARNING "[synaptics][debug] %s (file %s line %d) Done.\n", __func__, __FILE__, __LINE__)
-#else
-#define LOG_ENTRY() {}
-#define LOG_DONE() {}
-#endif
-
-
 
 #define INIT_BUFFER(buffer, is_clone) \
 	mutex_init(&buffer.buf_mutex); \
@@ -141,7 +127,7 @@ static ssize_t CONCAT(m_name##_sysfs, _##a_name##_store)(struct device *dev, \
 		struct device_attribute *attr, const char *buf, size_t count); \
 \
 static struct device_attribute dev_attr_##a_name = \
-		__ATTR(a_name, (S_IWUSR | S_IWGRP), \
+		__ATTR(a_name, (S_IWUSR), \
 		syna_tcm_show_error, \
 		CONCAT(m_name##_sysfs, _##a_name##_store));
 
@@ -153,7 +139,7 @@ static ssize_t CONCAT(m_name##_sysfs, _##a_name##_store)(struct device *dev, \
 		struct device_attribute *attr, const char *buf, size_t count); \
 \
 static struct device_attribute dev_attr_##a_name = \
-		__ATTR(a_name, (S_IRUGO | S_IWUSR | S_IWGRP), \
+		__ATTR(a_name, (S_IRUGO | S_IWUSR), \
 		CONCAT(m_name##_sysfs, _##a_name##_show), \
 		CONCAT(m_name##_sysfs, _##a_name##_store));
 
@@ -167,6 +153,7 @@ enum module_type {
 	TCM_RECOVERY = 4,
 	TCM_ZEROFLASH = 5,
 	TCM_DIAGNOSTICS = 6,
+	TCM_XIAOMI_INTERFACE = 7,
 	TCM_LAST,
 };
 
@@ -199,7 +186,7 @@ enum firmware_mode {
 	FW_MODE_APPLICATION = 1,
 	FW_MODE_PRODUCTION_TEST = 2,
 };
-
+#define DC_DYNAMIC_GRIP 208
 enum dynamic_config_id {
 	DC_UNKNOWN = 0x00,
 	DC_NO_DOZE,
@@ -215,7 +202,6 @@ enum dynamic_config_id {
 	DC_GRIP_SUPPRESSION_ENABLED,
 	DC_ENABLE_THICK_GLOVE,
 	DC_ENABLE_GLOVE,
-	DC_Enable_Landscape_Grip_Mode=0xD0,
 };
 
 enum command {
@@ -320,12 +306,6 @@ struct syna_tcm_watchdog {
 	struct workqueue_struct *workqueue;
 };
 
-struct syna_tcm_glove {
-	bool keep_runing;
-	struct delayed_work work;
-	struct workqueue_struct *workqueue;
-};
-
 struct syna_tcm_buffer {
 	bool clone;
 	unsigned char *buf;
@@ -411,13 +391,12 @@ struct syna_tcm_hcd {
 	atomic_t host_downloading;
 	wait_queue_head_t hdl_wq;
 	int irq;
+	bool reflash_okay;
 	bool init_okay;
 	bool do_polling;
 	bool in_suspend;
 	bool irq_enabled;
 	bool host_download_mode;
-	bool reseting;
-	bool upgrading;
 	unsigned char fb_ready;
 	unsigned char command;
 	unsigned char async_report_id;
@@ -429,9 +408,13 @@ struct syna_tcm_hcd {
 	unsigned int rd_chunk_size;
 	unsigned int wr_chunk_size;
 	unsigned int app_status;
+	struct dentry *debugfs;
 	struct platform_device *pdev;
 	struct regulator *pwr_reg;
 	struct regulator *bus_reg;
+	struct regulator *lab_reg;
+	struct regulator *ibb_reg;
+	struct regulator *i2c_reg;
 	struct kobject *sysfs_dir;
 	struct kobject *dynamnic_config_sysfs_dir;
 	struct mutex extif_mutex;
@@ -441,10 +424,10 @@ struct syna_tcm_hcd {
 	struct mutex rw_ctrl_mutex;
 	struct mutex command_mutex;
 	struct mutex identify_mutex;
-	struct mutex pm_mutex;
-	struct work_struct reset_work;
 	struct delayed_work polling_work;
 	struct workqueue_struct *polling_workqueue;
+	struct work_struct resume_work;
+	struct workqueue_struct *event_wq;
 	struct task_struct *notifier_thread;
 #ifdef CONFIG_FB
 	struct notifier_block fb_notifier;
@@ -461,7 +444,6 @@ struct syna_tcm_hcd {
 	struct syna_tcm_identification id_info;
 	struct syna_tcm_helper helper;
 	struct syna_tcm_watchdog watchdog;
-	struct syna_tcm_glove glove;
 	struct syna_tcm_features features;
 	const struct syna_tcm_hw_interface *hw_if;
 	int (*reset)(struct syna_tcm_hcd *tcm_hcd, bool hw, bool update_wd);
@@ -489,6 +471,13 @@ struct syna_tcm_hcd {
 			struct syna_tcm_buffer *output);
 	void (*report_touch)(void);
 	void (*update_watchdog)(struct syna_tcm_hcd *tcm_hcd, bool en);
+	char lockdown[LOCKDOWN_SIZE];
+	bool gesture_enabled;
+	struct pinctrl *ts_pinctrl;
+	struct pinctrl_state *pinctrl_state_active;
+	struct pinctrl_state *pinctrl_state_suspend;
+	bool gesture_enabled_when_resume;
+	bool gesture_disabled_when_resume;
 };
 
 struct syna_tcm_module_cb {
@@ -513,7 +502,6 @@ struct syna_tcm_module_handler {
 struct syna_tcm_module_pool {
 	bool initialized;
 	bool queue_work;
-	bool reconstructing;
 	struct mutex mutex;
 	struct list_head list;
 	struct work_struct work;

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2008,2009 NEC Software Tohoku, Ltd.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2020 XiaoMi, Inc.
  * Written by Takashi Sato <t-sato@yk.jp.nec.com>
  *            Akira Fujita <a-fujita@rs.jp.nec.com>
  *

@@ -35,6 +35,7 @@
 
 #define I2C_MODULE_NAME "synaptics_tcm_i2c"
 #define SPI_MODULE_NAME "synaptics_tcm_spi"
+#define WAKEUP_GESTURE
 
 struct syna_tcm_board_data {
 	bool x_flip;
@@ -45,6 +46,7 @@ struct syna_tcm_board_data {
 	int power_gpio;
 	int power_on_state;
 	int reset_gpio;
+	int mdss_reset;
 	int reset_on_state;
 	unsigned int spi_mode;
 	unsigned int power_delay_ms;
@@ -58,6 +60,9 @@ struct syna_tcm_board_data {
 	unsigned long irq_flags;
 	const char *pwr_reg_name;
 	const char *bus_reg_name;
+	const char *i2c_reg_name;
+	const char *lab_reg_name;
+	const char *ibb_reg_name;
 };
 
 #endif

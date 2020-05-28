@@ -59,8 +59,9 @@ static ssize_t brightness_store(struct device *dev,
 #endif
 	led_set_brightness(led_cdev, state);
 	led_cdev->usr_brightness_req = state;
-
 	ret = size;
+
+	sysfs_notify(&led_cdev->dev->kobj, NULL, "brightness");
 unlock:
 	mutex_unlock(&led_cdev->led_access);
 	return ret;

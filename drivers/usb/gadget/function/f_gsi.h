@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2020 XiaoMi, Inc.
 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -474,7 +474,7 @@ static struct usb_interface_descriptor rndis_gsi_control_intf = {
 	.bNumEndpoints =	1,
 	.bInterfaceClass =	USB_CLASS_WIRELESS_CONTROLLER,
 	.bInterfaceSubClass =   0x01,
-	.bInterfaceProtocol =   0x03,
+	.bInterfaceProtocol =   0x03, /* RNDIS over Ethernet */
 	/* .iInterface = DYNAMIC */
 };
 
@@ -534,7 +534,7 @@ rndis_gsi_iad_descriptor = {
 	.bInterfaceCount =	2, /* control + data */
 	.bFunctionClass =	USB_CLASS_WIRELESS_CONTROLLER,
 	.bFunctionSubClass =	0x01,
-	.bFunctionProtocol =	0x03,
+	.bFunctionProtocol =	0x03, /* RNDIS over Ethernet */
 	/* .iFunction = DYNAMIC */
 };
 

@@ -315,9 +315,9 @@ static int syna_tcm_spi_rmi_read(struct syna_tcm_hcd *tcm_hcd,
 	byte_count = length + 2;
 
 	if (bdata->ubl_byte_delay_us == 0)
-		retval = syna_tcm_spi_alloc_mem(tcm_hcd, 2, byte_count);
+		retval = syna_tcm_spi_alloc_mem(tcm_hcd, 2, 2);
 	else
-		retval = syna_tcm_spi_alloc_mem(tcm_hcd, byte_count, 3);
+		retval = syna_tcm_spi_alloc_mem(tcm_hcd, byte_count, 2);
 	if (retval < 0) {
 		LOGE(&spi->dev,
 				"Failed to allocate memory\n");
@@ -332,24 +332,19 @@ static int syna_tcm_spi_rmi_read(struct syna_tcm_hcd *tcm_hcd,
 		xfer[0].tx_buf = buf;
 		xfer[0].speed_hz = bdata->ubl_max_freq;
 		spi_message_add_tail(&xfer[0], &msg);
-		memset(&buf[2], 0xff, length);
 		xfer[1].len = length;
-		xfer[1].tx_buf = &buf[2];
 		xfer[1].rx_buf = data;
 		if (bdata->block_delay_us)
 			xfer[1].delay_usecs = bdata->block_delay_us;
 		xfer[1].speed_hz = bdata->ubl_max_freq;
 		spi_message_add_tail(&xfer[1], &msg);
 	} else {
-		buf[2] = 0xff;
 		for (idx = 0; idx < byte_count; idx++) {
 			xfer[idx].len = 1;
-			if (idx < 2) {
+			if (idx < 2)
 				xfer[idx].tx_buf = &buf[idx];
-			} else {
-				xfer[idx].tx_buf = &buf[2];
+			else
 				xfer[idx].rx_buf = &data[idx - 2];
-			}
 			xfer[idx].delay_usecs = bdata->ubl_byte_delay_us;
 			if (bdata->block_delay_us && (idx == byte_count - 1))
 				xfer[idx].delay_usecs = bdata->block_delay_us;

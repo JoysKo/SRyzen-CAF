@@ -2,7 +2,11 @@
  * bootinfo.c
  *
  * Copyright (C) 2011 Xiaomi Ltd.
+<<<<<<< HEAD
  * Copyright (C) 2019 XiaoMi, Inc.
+=======
+ * Copyright (C) 2020 XiaoMi, Inc.
+>>>>>>> c8943e67a6d6 (Kernel: Xiaomi kernel changes for MI MAX3 and MI 8Lite Android R)
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -13,15 +17,18 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/string.h>
 #include <asm/setup.h>
 #include <asm/bootinfo.h>
 #include <linux/bitops.h>
 #include <linux/input/qpnp-power-on.h>
+#include <soc/qcom/socinfo.h>
 
 #define PMIC_NUM (16)
 static int pmic_v[PMIC_NUM];
-static const char *poweroff_reasons[POFF_REASON_MAX] = {
+static const char * const poweroff_reasons[POFF_REASON_MAX] = {
 	[POFF_REASON_EVENT_SOFT]		= "soft",
 	[POFF_REASON_EVENT_PS_HOLD]		= "ps_hold",
 	[POFF_REASON_EVENT_PMIC_WD]		= "pmic_wd",
@@ -38,6 +45,7 @@ static const char *poweroff_reasons[POFF_REASON_MAX] = {
 	[POFF_REASON_EVENT_UVLO]		= "uvlo",
 	[POFF_REASON_EVENT_OTST3]		= "otst3",
 	[POFF_REASON_EVENT_STAGE3]		= "stage3",
+	[POFF_REASON_EVENT_KPDPWR_N]		= "kpdpwr_n",
 	[POFF_REASON_EVENT_GP_FAULT0]		= "gp_fault0",
 	[POFF_REASON_EVENT_GP_FAULT1]		= "gp_fault1",
 	[POFF_REASON_EVENT_GP_FAULT2]		= "gp_fault2",
@@ -64,7 +72,7 @@ static const char *poweroff_reasons[POFF_REASON_MAX] = {
 	[POFF_REASON_EVENT_S3_RESET_KPDPWR_ANDOR_RESIN] = "s3_reset_kpdpwr_andor_resin",
 };
 
-static const char *powerup_reasons[PU_REASON_MAX] = {
+static const char * const powerup_reasons[PU_REASON_MAX] = {
 	[PU_REASON_EVENT_KPD]		= "keypad",
 	[PU_REASON_EVENT_RTC]		= "rtc",
 	[PU_REASON_EVENT_CABLE]		= "cable",
@@ -76,11 +84,11 @@ static const char *powerup_reasons[PU_REASON_MAX] = {
 	[PU_REASON_EVENT_LPK]		= "long_power_key",
 };
 
-static const char *reset_reasons[RS_REASON_MAX] = {
-	[RS_REASON_EVENT_WDOG]          = "wdog",
-	[RS_REASON_EVENT_KPANIC]        = "kpanic",
-	[RS_REASON_EVENT_NORMAL]        = "reboot",
-	[RS_REASON_EVENT_OTHER]         = "other",
+static const char * const reset_reasons[RS_REASON_MAX] = {
+	[RS_REASON_EVENT_WDOG]		= "wdog",
+	[RS_REASON_EVENT_KPANIC]	= "kpanic",
+	[RS_REASON_EVENT_NORMAL]	= "reboot",
+	[RS_REASON_EVENT_OTHER]		= "other",
 };
 
 static struct kobject *bootinfo_kobj;
@@ -107,12 +115,12 @@ void set_##name(type __##name)			\
 	name = __##name;			\
 }
 
-bool is_abnormal_powerup(void)
+int is_abnormal_powerup(void)
 {
 	u32 pu_reason = get_powerup_reason();
 
-	return (((pu_reason & (RESTART_EVENT_KPANIC | RESTART_EVENT_WDOG)) |
-		 (pu_reason & BIT(PU_REASON_EVENT_HWRST) & RESTART_EVENT_OTHER))==0 ? false : true);
+	return (pu_reason & (RESTART_EVENT_KPANIC | RESTART_EVENT_WDOG)) |
+		(pu_reason & BIT(PU_REASON_EVENT_HWRST) & RESTART_EVENT_OTHER);
 }
 
 static ssize_t powerup_reason_show(struct kobject *kobj,
@@ -129,11 +137,14 @@ static ssize_t powerup_reason_show(struct kobject *kobj,
 		&& qpnp_pon_is_ps_hold_reset()) ||
 		(pu_reason & BIT(PU_REASON_EVENT_WARMRST))) {
 		reset_reason = pu_reason >> 16;
-		reset_reason_index = find_first_bit((unsigned long *)&reset_reason,
+		reset_reason_index =
+		find_first_bit((unsigned long *)&reset_reason,
 				sizeof(reset_reason)*BITS_PER_BYTE);
-		if (reset_reason_index < RS_REASON_MAX && reset_reason_index >= 0) {
-			s += snprintf(s, strlen(reset_reasons[reset_reason_index]) + 2,
-					"%s\n", reset_reasons[reset_reason_index]);
+		if (reset_reason_index < RS_REASON_MAX
+			&& reset_reason_index >= 0) {
+			s += snprintf(s,
+				strlen(reset_reasons[reset_reason_index]) + 2,
+				"%s\n", reset_reasons[reset_reason_index]);
 			pr_debug("%s: rs_reason [0x%x], first non-zero bit %d\n",
 				__func__, reset_reason, reset_reason_index);
 			goto out;
@@ -178,7 +189,6 @@ static ssize_t powerup_reason_details_show(struct kobject *kobj,
 	return snprintf(buf, 11, "0x%x\n", pu_reason);
 }
 
-
 void set_poweroff_reason(int pmicv)
 {
 	int i = 0;
@@ -197,9 +207,10 @@ static ssize_t poweroff_reason_show(struct kobject *kobj,
 			struct kobj_attribute *attr, char *buf)
 {
 	int i = 0;
+	int v = -1;
 	int l = 0;
-	int v = pmic_v[0];
 
+	v = pmic_v[0];
 	if (v == -1)
 		return snprintf(buf, 10, " unknown \n");
 
@@ -208,10 +219,11 @@ static ssize_t poweroff_reason_show(struct kobject *kobj,
 		i++;
 		if (v >= 0 && v < POFF_REASON_MAX)
 			l += snprintf(buf + l,
-				(strlen(poweroff_reasons[v]) + 10),
+				 (strlen(poweroff_reasons[v]) + 10),
 				" PNo.%d-%s ", i - 1, poweroff_reasons[v]);
 		else
-			l += snprintf(buf + l, 17, " PNo.%d-%s ", i - 1, "unknown");
+			l += snprintf(buf + l,
+				17, " PNo.%d-%s ", i - 1, "unknown");
 	}
 	l += snprintf(buf + l, 2, "\n");
 
@@ -234,6 +246,38 @@ static struct attribute_group attr_group = {
 	.attrs = g,
 };
 
+static int cpumaxfreq_show(struct seq_file *m, void *v)
+{
+	/* value is used for setting cpumaxfreq */
+	switch (get_hw_version_platform()) {
+	case HARDWARE_PLATFORM_NITROGEN:
+		seq_printf(m, "1.8\n");
+		break;
+	case HARDWARE_PLATFORM_JASON:
+	case HARDWARE_PLATFORM_PLATINA:
+		seq_printf(m, "2.2\n");
+		break;
+	default:
+		seq_printf(m, "1.0\n");
+		pr_err("Unknown hardware version\n");
+		break;
+	}
+
+	return 0;
+}
+
+static int cpumaxfreq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, &cpumaxfreq_show, NULL);
+}
+
+static const struct file_operations proc_cpumaxfreq_operations = {
+	.open       = cpumaxfreq_open,
+	.read       = seq_read,
+	.llseek     = seq_lseek,
+	.release    = seq_release,
+};
+
 static int __init bootinfo_init(void)
 {
 	int ret = -ENOMEM;
@@ -243,12 +287,14 @@ static int __init bootinfo_init(void)
 		pr_err("bootinfo_init: subsystem_register failed\n");
 		goto fail;
 	}
+
 	memset(pmic_v, -1, sizeof(pmic_v));
 	ret = sysfs_create_group(bootinfo_kobj, &attr_group);
 	if (ret) {
 		pr_err("bootinfo_init: subsystem_register failed\n");
 		goto sys_fail;
 	}
+	proc_create("cpumaxfreq", 0, NULL, &proc_cpumaxfreq_operations);
 
 	return ret;
 

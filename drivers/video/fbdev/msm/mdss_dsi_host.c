@@ -1,5 +1,5 @@
 /* Copyright (c) 2012-2018, 2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2020 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,6 @@
 #include <linux/kthread.h>
 
 #include <linux/msm-bus.h>
-#include <linux/string.h>
 
 #include "mdss.h"
 #include "mdss_dsi.h"
@@ -125,7 +124,7 @@ void mdss_dsi_ctrl_init(struct device *ctrl_dev,
 	mutex_init(&ctrl->cmd_mutex);
 	mutex_init(&ctrl->clk_lane_mutex);
 	mutex_init(&ctrl->cmdlist_mutex);
-	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->tx_buf, SZ_4K);
+	mutex_init(&ctrl->dsi_ctrl_mutex);
 	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->rx_buf, SZ_4K);
 	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->status_buf, SZ_4K);
 	ctrl->cmdlist_commit = mdss_dsi_cmdlist_commit;
@@ -1188,8 +1187,6 @@ static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
  * Return: positive value if the panel is in good state, negative value or
  * zero otherwise.
  */
-extern char g_lcd_id[128];
-extern bool ESD_TE_status;
 int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int ret = 0;
@@ -1241,9 +1238,6 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			ret = ctrl_pdata->check_read_status(sctrl_pdata);
 	} else {
 		pr_err("%s: Read status register returned error\n", __func__);
-		if ((strstr(g_lcd_id, "nt36672") != NULL) || (strstr(g_lcd_id, "nt36672a") != NULL) || (strstr(g_lcd_id, "td4320") != NULL)) {
-			ESD_TE_status = true;
-		}
 	}
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
@@ -2188,7 +2182,6 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 					struct dsi_buf *tp)
 {
 	int len, ret = 0;
-	int domain = MDSS_IOMMU_DOMAIN_UNSECURE;
 	char *bp;
 	struct mdss_dsi_ctrl_pdata *mctrl = NULL;
 	int ignored = 0;	/* overflow ignored */
@@ -2197,20 +2190,6 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	len = ALIGN(tp->len, 4);
 	ctrl->dma_size = ALIGN(tp->len, SZ_4K);
-
-	ctrl->mdss_util->iommu_lock();
-	if (ctrl->mdss_util->iommu_attached()) {
-		ret = mdss_smmu_dsi_map_buffer(tp->dmap, domain, ctrl->dma_size,
-			&(ctrl->dma_addr), tp->start, DMA_TO_DEVICE);
-		if (IS_ERR_VALUE(ret)) {
-			pr_err("unable to map dma memory to iommu(%d)\n", ret);
-			ctrl->mdss_util->iommu_unlock();
-			return -ENOMEM;
-		}
-		ctrl->dmap_iommu_map = true;
-	} else {
-		ctrl->dma_addr = tp->dmap;
-	}
 
 	reinit_completion(&ctrl->dma_comp);
 
@@ -2290,19 +2269,6 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			/* restore overflow isr */
 			mdss_dsi_set_reg(mctrl, 0x10c, 0x0f0000, 0);
 		}
-		if (mctrl->dmap_iommu_map) {
-			mdss_smmu_dsi_unmap_buffer(mctrl->dma_addr, domain,
-				mctrl->dma_size, DMA_TO_DEVICE);
-			mctrl->dmap_iommu_map = false;
-		}
-		mctrl->dma_addr = 0;
-		mctrl->dma_size = 0;
-	}
-
-	if (ctrl->dmap_iommu_map) {
-		mdss_smmu_dsi_unmap_buffer(ctrl->dma_addr, domain,
-			ctrl->dma_size, DMA_TO_DEVICE);
-		ctrl->dmap_iommu_map = false;
 	}
 
 	if (ignored) {
@@ -2311,10 +2277,8 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 		/* restore overflow isr */
 		mdss_dsi_set_reg(ctrl, 0x10c, 0x0f0000, 0);
 	}
-	ctrl->dma_addr = 0;
-	ctrl->dma_size = 0;
+
 end:
-	ctrl->mdss_util->iommu_unlock();
 	return ret;
 }
 

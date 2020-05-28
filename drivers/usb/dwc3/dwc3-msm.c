@@ -1,5 +1,5 @@
 /* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2020 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2757,7 +2757,7 @@ static void check_for_sdp_connection(struct work_struct *w)
 		if (mdwc->usb_psy) {
 			pval.intval = 1;
 			ret = power_supply_set_property(mdwc->usb_psy,
-				POWER_SUPPLY_PROP_RERUN_APSD, &pval);
+					POWER_SUPPLY_PROP_RERUN_APSD, &pval);
 			if (ret)
 				dev_dbg(mdwc->dev, "error when set property\n");
 		}
@@ -3890,22 +3890,24 @@ int get_psy_type(struct dwc3_msm *mdwc)
 	return pval.intval;
 }
 
+#define ENUMERATE_MA		500
 static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned mA)
 {
 	union power_supply_propval pval = {0};
 	int ret, psy_type;
 
 	psy_type = get_psy_type(mdwc);
+
 	if (psy_type == POWER_SUPPLY_TYPE_USB_FLOAT
-		|| (mdwc->check_for_float && mdwc->float_detected)) {
-		if (!mA)
-			pval.intval = -ETIMEDOUT;
-		else
-			pval.intval = 1000 * mA;
+			&& (mA != ENUMERATE_MA)) {
+		pval.intval = -ETIMEDOUT;
 		goto set_prop;
 	}
 
-	if (mdwc->max_power == mA || psy_type != POWER_SUPPLY_TYPE_USB)
+	if (mdwc->max_power == mA
+			|| (psy_type == POWER_SUPPLY_TYPE_USB_CDP)
+			|| ((psy_type != POWER_SUPPLY_TYPE_USB)
+				&& (mA != ENUMERATE_MA)))
 		return 0;
 
 	dev_info(mdwc->dev, "Avail curr from USB = %u\n", mA);

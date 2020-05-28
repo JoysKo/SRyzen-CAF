@@ -30,14 +30,9 @@
  * DOLLARS.
  */
 
-#include <linux/gpio.h>
 #include <linux/crc32.h>
 #include <linux/firmware.h>
 #include "synaptics_tcm_core.h"
-
-/* add check F7A LCM by wanghan start */
-extern bool lct_syna_verify_flag;
-/* add check F7A LCM by wanghan end */
 
 #define FW_IMAGE_NAME "synaptics/hdl_firmware.img"
 
@@ -65,8 +60,6 @@ extern bool lct_syna_verify_flag;
 
 #define F35_WRITE_FW_TO_PMEM_COMMAND 4
 
-#define RESET_TO_HDL_DELAY_MS 0
-
 #define DOWNLOAD_RETRY_COUNT 10
 
 enum f35_error_code {
@@ -88,8 +81,8 @@ enum f35_error_code {
 
 enum config_download {
 	HDL_INVALID = 0,
-	HDL_TOUCH_CONFIG,
-	HDL_DISPLAY_CONFIG,
+	HDL_TOUCH_CONFIG_TO_PMEM,
+	HDL_DISPLAY_CONFIG_TO_PMEM,
 	HDL_DISPLAY_CONFIG_TO_RAM,
 };
 
@@ -165,8 +158,7 @@ struct firmware_status {
 	unsigned short invalid_static_config:1;
 	unsigned short need_disp_config:1;
 	unsigned short need_app_config:1;
-	unsigned short hdl_version:4;
-	unsigned short reserved:9;
+	unsigned short reserved:13;
 } __packed;
 
 struct zeroflash_hcd {
@@ -198,7 +190,6 @@ static int zeroflash_check_uboot(void)
 	struct rmi_pdt_entry p_entry;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = syna_tcm_rmi_read(tcm_hcd,
 			PDT_END_ADDR,
 			&fn_number,
@@ -258,7 +249,6 @@ static int zeroflash_check_uboot(void)
 		return -ENODEV;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -279,7 +269,6 @@ static int zeroflash_parse_fw_image(void)
 	const unsigned char *image;
 	const unsigned char *content;
 
-	LOG_ENTRY();
 	image = zeroflash_hcd->image;
 	image_info = &zeroflash_hcd->image_info;
 	header = (struct image_header *)image;
@@ -311,8 +300,8 @@ static int zeroflash_parse_fw_image(void)
 		checksum = le4_to_uint(descriptor->checksum);
 
 		if (0 == strncmp((char *)descriptor->id_string,
-					BOOT_CONFIG_ID,
-					strlen(BOOT_CONFIG_ID))) {
+				BOOT_CONFIG_ID,
+				strlen(BOOT_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
 						"Boot config checksum error\n");
@@ -328,8 +317,8 @@ static int zeroflash_parse_fw_image(void)
 					"Boot config flash address = 0x%08x\n",
 					flash_addr);
 		} else if (0 == strncmp((char *)descriptor->id_string,
-					F35_APP_CODE_ID,
-					strlen(F35_APP_CODE_ID))) {
+				F35_APP_CODE_ID,
+				strlen(F35_APP_CODE_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
 						"Application firmware checksum error\n");
@@ -345,8 +334,8 @@ static int zeroflash_parse_fw_image(void)
 					"Application firmware flash address = 0x%08x\n",
 					flash_addr);
 		} else if (0 == strncmp((char *)descriptor->id_string,
-					APP_CONFIG_ID,
-					strlen(APP_CONFIG_ID))) {
+				APP_CONFIG_ID,
+				strlen(APP_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
 						"Application config checksum error\n");
@@ -363,8 +352,8 @@ static int zeroflash_parse_fw_image(void)
 					"Application config flash address = 0x%08x\n",
 					flash_addr);
 		} else if (0 == strncmp((char *)descriptor->id_string,
-					DISP_CONFIG_ID,
-					strlen(DISP_CONFIG_ID))) {
+				DISP_CONFIG_ID,
+				strlen(DISP_CONFIG_ID))) {
 			if (checksum != (crc32(~0, content, length) ^ ~0)) {
 				LOGE(tcm_hcd->pdev->dev.parent,
 						"Display config checksum error\n");
@@ -382,7 +371,6 @@ static int zeroflash_parse_fw_image(void)
 		}
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -391,7 +379,6 @@ static int zeroflash_get_fw_image(void)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (zeroflash_hcd->fw_entry != NULL)
 		return 0;
 
@@ -425,7 +412,6 @@ static int zeroflash_get_fw_image(void)
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -434,7 +420,6 @@ static void zeroflash_download_config(void)
 	struct firmware_status *fw_status;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	fw_status = &zeroflash_hcd->fw_status;
 
 	if (!fw_status->need_app_config && !fw_status->need_disp_config) {
@@ -451,15 +436,12 @@ static void zeroflash_download_config(void)
 
 	queue_work(zeroflash_hcd->workqueue, &zeroflash_hcd->config_work);
 
-	LOG_DONE();
 	return;
 }
 
 static void zeroflash_download_firmware(void)
 {
-	LOG_ENTRY();
 	queue_work(zeroflash_hcd->workqueue, &zeroflash_hcd->firmware_work);
-	LOG_DONE();
 
 	return;
 }
@@ -472,7 +454,6 @@ static int zeroflash_download_disp_config(void)
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 	static unsigned int retry_count;
 
-	LOG_ENTRY();
 	LOGN(tcm_hcd->pdev->dev.parent,
 			"Downloading display config\n");
 
@@ -495,22 +476,8 @@ static int zeroflash_download_disp_config(void)
 		goto unlock_out;
 	}
 
-	switch (zeroflash_hcd->fw_status.hdl_version) {
-	case 0:
-		zeroflash_hcd->out.buf[0] = 1;
-		zeroflash_hcd->out.buf[1] = HDL_DISPLAY_CONFIG_TO_RAM;
-		break;
-	case 1:
-		zeroflash_hcd->out.buf[0] = 2;
-		zeroflash_hcd->out.buf[1] = HDL_DISPLAY_CONFIG;
-		break;
-	default:
-		retval = -EINVAL;
-		LOGE(tcm_hcd->pdev->dev.parent,
-				"Invalid HDL version (%d)\n",
-				zeroflash_hcd->fw_status.hdl_version);
-		goto unlock_out;
-	}
+	zeroflash_hcd->out.buf[0] = 1;
+	zeroflash_hcd->out.buf[1] = HDL_DISPLAY_CONFIG_TO_RAM;
 
 	retval = secure_memcpy(&zeroflash_hcd->out.buf[2],
 			zeroflash_hcd->out.buf_size - 2,
@@ -571,20 +538,17 @@ unlock_resp:
 unlock_out:
 	UNLOCK_BUFFER(zeroflash_hcd->out);
 
-	LOG_DONE();
 	return retval;
 }
 
 static int zeroflash_download_app_config(void)
 {
 	int retval;
-	unsigned char padding;
 	unsigned char response_code;
 	struct image_info *image_info;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 	static unsigned int retry_count;
 
-	LOG_ENTRY();
 	LOGN(tcm_hcd->pdev->dev.parent,
 			"Downloading application config\n");
 
@@ -596,37 +560,19 @@ static int zeroflash_download_app_config(void)
 		return -EINVAL;
 	}
 
-	padding = image_info->app_config.size % 8;
-	if (padding)
-		padding = 8 - padding;
-
 	LOCK_BUFFER(zeroflash_hcd->out);
 
 	retval = syna_tcm_alloc_mem(tcm_hcd,
 			&zeroflash_hcd->out,
-			image_info->app_config.size + 2 + padding);
+			image_info->app_config.size + 2);
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"Failed to allocate memory for zeroflash_hcd->out.buf\n");
 		goto unlock_out;
 	}
 
-	switch (zeroflash_hcd->fw_status.hdl_version) {
-	case 0:
-		zeroflash_hcd->out.buf[0] = 1;
-		break;
-	case 1:
-		zeroflash_hcd->out.buf[0] = 2;
-		break;
-	default:
-		retval = -EINVAL;
-		LOGE(tcm_hcd->pdev->dev.parent,
-				"Invalid HDL version (%d)\n",
-				zeroflash_hcd->fw_status.hdl_version);
-		goto unlock_out;
-	}
-
-	zeroflash_hcd->out.buf[1] = HDL_TOUCH_CONFIG;
+	zeroflash_hcd->out.buf[0] = 1;
+	zeroflash_hcd->out.buf[1] = HDL_TOUCH_CONFIG_TO_PMEM;
 
 	retval = secure_memcpy(&zeroflash_hcd->out.buf[2],
 			zeroflash_hcd->out.buf_size - 2,
@@ -640,7 +586,6 @@ static int zeroflash_download_app_config(void)
 	}
 
 	zeroflash_hcd->out.data_length = image_info->app_config.size + 2;
-	zeroflash_hcd->out.data_length += padding;
 
 	LOCK_BUFFER(zeroflash_hcd->resp);
 
@@ -688,7 +633,6 @@ unlock_resp:
 unlock_out:
 	UNLOCK_BUFFER(zeroflash_hcd->out);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -697,7 +641,6 @@ static void zeroflash_download_config_work(struct work_struct *work)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = zeroflash_get_fw_image();
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -734,7 +677,6 @@ exit:
 
 	zeroflash_download_config();
 
-	LOG_DONE();
 	return;
 }
 
@@ -744,11 +686,7 @@ static int zeroflash_download_app_fw(void)
 	unsigned char command;
 	struct image_info *image_info;
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
-#if RESET_TO_HDL_DELAY_MS
-	const struct syna_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
-#endif
 
-	LOG_ENTRY();
 	LOGN(tcm_hcd->pdev->dev.parent,
 			"Downloading application firmware\n");
 
@@ -788,13 +726,6 @@ static int zeroflash_download_app_fw(void)
 
 	command = F35_WRITE_FW_TO_PMEM_COMMAND;
 
-#if RESET_TO_HDL_DELAY_MS
-	gpio_set_value(bdata->reset_gpio, bdata->reset_on_state);
-	msleep(bdata->reset_active_ms);
-	gpio_set_value(bdata->reset_gpio, !bdata->reset_on_state);
-	mdelay(RESET_TO_HDL_DELAY_MS);
-#endif
-
 	retval = syna_tcm_rmi_write(tcm_hcd,
 			zeroflash_hcd->f35_addr.control_base + F35_CTRL3_OFFSET,
 			&command,
@@ -822,7 +753,6 @@ static int zeroflash_download_app_fw(void)
 	LOGN(tcm_hcd->pdev->dev.parent,
 			"Application firmware downloaded\n");
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -833,7 +763,6 @@ static void zeroflash_download_firmware_work(struct work_struct *work)
 	struct syna_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 	static unsigned int retry_count;
 
-	LOG_ENTRY();
 	retval = zeroflash_check_uboot();
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -905,13 +834,11 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return;
 }
 
 static int zeroflash_init(struct syna_tcm_hcd *tcm_hcd)
 {
-	LOG_ENTRY();
 	zeroflash_hcd = kzalloc(sizeof(*zeroflash_hcd), GFP_KERNEL);
 	if (!zeroflash_hcd) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -925,7 +852,7 @@ static int zeroflash_init(struct syna_tcm_hcd *tcm_hcd)
 	INIT_BUFFER(zeroflash_hcd->resp, false);
 
 	zeroflash_hcd->workqueue =
-		create_singlethread_workqueue("syna_tcm_zeroflash");
+			create_singlethread_workqueue("syna_tcm_zeroflash");
 	INIT_WORK(&zeroflash_hcd->config_work,
 			zeroflash_download_config_work);
 	INIT_WORK(&zeroflash_hcd->firmware_work,
@@ -935,13 +862,11 @@ static int zeroflash_init(struct syna_tcm_hcd *tcm_hcd)
 			tcm_hcd->hw_if->bus_io->type == BUS_SPI)
 		zeroflash_download_firmware();
 
-	LOG_DONE();
 	return 0;
 }
 
 static int zeroflash_remove(struct syna_tcm_hcd *tcm_hcd)
 {
-	LOG_ENTRY();
 	if (!zeroflash_hcd)
 		goto exit;
 
@@ -962,7 +887,6 @@ static int zeroflash_remove(struct syna_tcm_hcd *tcm_hcd)
 exit:
 	complete(&zeroflash_remove_complete);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -971,7 +895,6 @@ static int zeroflash_syncbox(struct syna_tcm_hcd *tcm_hcd)
 	int retval;
 	unsigned char *fw_status;
 
-	LOG_ENTRY();
 	if (!zeroflash_hcd)
 		return 0;
 
@@ -1003,7 +926,6 @@ static int zeroflash_syncbox(struct syna_tcm_hcd *tcm_hcd)
 		break;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1011,13 +933,11 @@ static int zeroflash_reset(struct syna_tcm_hcd *tcm_hcd)
 {
 	int retval;
 
-	LOG_ENTRY();
 	if (!zeroflash_hcd) {
 		retval = zeroflash_init(tcm_hcd);
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1035,33 +955,19 @@ static struct syna_tcm_module_cb zeroflash_module = {
 
 static int __init zeroflash_module_init(void)
 {
-	int retval;
-	LOG_ENTRY();
-	/* add check F7A LCM by wanghan start */
-	if(!lct_syna_verify_flag)
-		return -ENODEV;
-	/* add check F7A LCM by wanghan end */
-	LOGV("__init zeroflash module\n");
-	retval = syna_tcm_add_module(&zeroflash_module, true);
-	if(retval) {
-		LOGV("syna_tcm_add_module failed! retval = %d\n", retval);
-	}
-	LOG_DONE();
-	return retval;
+	return syna_tcm_add_module(&zeroflash_module, true);
 }
 
 static void __exit zeroflash_module_exit(void)
 {
-	LOG_ENTRY();
 	syna_tcm_add_module(&zeroflash_module, false);
 
 	wait_for_completion(&zeroflash_remove_complete);
 
-	LOG_DONE();
 	return;
 }
 
-module_init(zeroflash_module_init);
+late_initcall(zeroflash_module_init);
 module_exit(zeroflash_module_exit);
 
 MODULE_AUTHOR("Synaptics, Inc.");

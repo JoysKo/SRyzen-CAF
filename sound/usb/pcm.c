@@ -14,7 +14,6 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
-
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/bitrev.h>
@@ -493,6 +492,7 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 }
 
 extern void kick_usbpd_vbus_sm(void);
+
 /*
  * find a matching format and set up the interface
  */

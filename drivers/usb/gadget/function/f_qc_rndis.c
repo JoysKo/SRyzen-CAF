@@ -164,7 +164,7 @@ static struct usb_interface_descriptor rndis_qc_control_intf = {
 	.bNumEndpoints =	1,
 	.bInterfaceClass =	USB_CLASS_WIRELESS_CONTROLLER,
 	.bInterfaceSubClass =   0x01,
-	.bInterfaceProtocol =   0x03,
+	.bInterfaceProtocol =   0x03, /* RNDIS over ethernet */
 	/* .iInterface = DYNAMIC */
 };
 
@@ -224,8 +224,8 @@ rndis_qc_iad_descriptor = {
 	.bFirstInterface =	0, /* XXX, hardcoded */
 	.bInterfaceCount =	2, /* control + data */
 	.bFunctionClass =	USB_CLASS_WIRELESS_CONTROLLER,
-	.bFunctionSubClass =   0x01,
-	.bFunctionProtocol =   0x03,
+	.bFunctionSubClass =	0x01,
+	.bFunctionProtocol =	0x03, /* RNDIS over ethernet */
 	/* .iFunction = DYNAMIC */
 };
 

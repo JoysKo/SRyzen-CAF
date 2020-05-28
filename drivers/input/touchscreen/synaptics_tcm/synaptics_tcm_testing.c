@@ -33,20 +33,6 @@
 #include <linux/gpio.h>
 #include "synaptics_tcm_core.h"
 #include "synaptics_tcm_testing.h"
-/* add syna tp selftest by wanghan 2018-8-21 start*/
-#include "../lct_tp_selftest.h"
-#include <asm/uaccess.h>
-/* add syna tp selftest by wanghan 2018-8-21 end*/
-
-/* add check F7A LCM by wanghan start */
-extern bool lct_syna_verify_flag;
-static int32_t lct_syna_save_rawdata_to_csv(unsigned char *buf, uint8_t x_ch, uint8_t y_ch, const char *file_path, uint32_t offset);
-#define LCT_TP_SYNA_COL          18
-#define LCT_TP_SYNA_ROW          36
-#define LCT_TP_SYNA_DYR_SCV      "/data/synaptics_test/synaptics_dynamic_range.csv"
-#define LCT_TP_SYNA_NOISE_SCV    "/data/synaptics_test/synaptics_noise.csv"
-#define LCT_TP_SYNA_PT11_SCV     "/data/synaptics_test/synaptics_pt11.csv"
-/* add check F7A LCM by wanghan end */
 
 #define SYSFS_DIR_NAME "testing"
 
@@ -60,6 +46,8 @@ static ssize_t testing_sysfs_##t_name##_show(struct device *dev, \
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd; \
 \
 	mutex_lock(&tcm_hcd->extif_mutex); \
+	LOGE(tcm_hcd->pdev->dev.parent, \
+				""#t_name" test start\n"); \
 \
 	retval = testing_##t_name(); \
 	if (retval < 0) { \
@@ -75,6 +63,8 @@ static ssize_t testing_sysfs_##t_name##_show(struct device *dev, \
 exit: \
 	mutex_unlock(&tcm_hcd->extif_mutex); \
 \
+	LOGE(tcm_hcd->pdev->dev.parent, \
+				""#t_name" test end\n"); \
 	return retval; \
 }
 
@@ -104,6 +94,7 @@ struct testing_hcd {
 	struct syna_tcm_buffer process;
 	struct syna_tcm_buffer output;
 	struct syna_tcm_hcd *tcm_hcd;
+	int result_type;
 	int (*collect_reports)(enum report_type report_type,
 			unsigned int num_of_reports);
 };
@@ -219,7 +210,6 @@ static ssize_t testing_sysfs_trx_trx_shorts_show(struct device *dev,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	retval = testing_trx(TEST_TRX_TRX_SHORTS);
@@ -236,7 +226,6 @@ static ssize_t testing_sysfs_trx_trx_shorts_show(struct device *dev,
 exit:
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -246,7 +235,6 @@ static ssize_t testing_sysfs_trx_sensor_opens_show(struct device *dev,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	retval = testing_trx(TEST_TRX_SENSOR_OPENS);
@@ -263,7 +251,6 @@ static ssize_t testing_sysfs_trx_sensor_opens_show(struct device *dev,
 exit:
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -273,7 +260,6 @@ static ssize_t testing_sysfs_trx_ground_shorts_show(struct device *dev,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	retval = testing_trx(TEST_TRX_GROUND_SHORTS);
@@ -290,7 +276,6 @@ static ssize_t testing_sysfs_trx_ground_shorts_show(struct device *dev,
 exit:
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -300,7 +285,6 @@ static ssize_t testing_sysfs_size_show(struct device *dev,
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	LOCK_BUFFER(testing_hcd->output);
@@ -313,7 +297,6 @@ static ssize_t testing_sysfs_size_show(struct device *dev,
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -325,7 +308,6 @@ static ssize_t testing_sysfs_data_show(struct file *data_file,
 	unsigned int readlen;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	mutex_lock(&tcm_hcd->extif_mutex);
 
 	LOCK_BUFFER(testing_hcd->output);
@@ -339,7 +321,7 @@ static ssize_t testing_sysfs_data_show(struct file *data_file,
 			readlen);
 	if (retval < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
-				"Failed to copy report data\n");
+			"Failed to copy report data\n");
 	} else {
 		retval = readlen;
 	}
@@ -348,7 +330,6 @@ static ssize_t testing_sysfs_data_show(struct file *data_file,
 
 	mutex_unlock(&tcm_hcd->extif_mutex);
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -357,7 +338,6 @@ static int testing_run_prod_test_item(enum test_code test_code)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (tcm_hcd->features.dual_firmware &&
 			tcm_hcd->id_info.mode != MODE_PRODUCTION_TEST) {
 		retval = tcm_hcd->switch_mode(tcm_hcd, FW_MODE_PRODUCTION_TEST);
@@ -410,7 +390,6 @@ static int testing_run_prod_test_item(enum test_code test_code)
 	UNLOCK_BUFFER(testing_hcd->resp);
 	UNLOCK_BUFFER(testing_hcd->out);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -422,7 +401,6 @@ static int testing_collect_reports(enum report_type report_type,
 	unsigned int timeout;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	testing_hcd->report_index = 0;
 	testing_hcd->report_type = report_type;
 	testing_hcd->num_of_reports = num_of_reports;
@@ -517,7 +495,6 @@ static int testing_collect_reports(enum report_type report_type,
 exit:
 	testing_hcd->report_type = 0;
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -530,7 +507,6 @@ static void testing_get_frame_size_words(unsigned int *size, bool image_only)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -546,7 +522,6 @@ static void testing_get_frame_size_words(unsigned int *size, bool image_only)
 		*size += buttons;
 	}
 
-	LOG_DONE();
 	return;
 }
 
@@ -559,7 +534,6 @@ static void testing_doze_frame_output(unsigned int rows, unsigned int cols)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	header_size = 2;
@@ -611,7 +585,6 @@ static void testing_doze_frame_output(unsigned int rows, unsigned int cols)
 
 	UNLOCK_BUFFER(testing_hcd->output);
 
-	LOG_DONE();
 	return;
 }
 
@@ -624,15 +597,14 @@ static void testing_standard_frame_output(bool image_only)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	testing_get_frame_size_words(&data_size, image_only);
 
 	header_size = sizeof(app_info->num_of_buttons) +
-		sizeof(app_info->num_of_image_rows) +
-		sizeof(app_info->num_of_image_cols) +
-		sizeof(app_info->has_hybrid_data);
+			sizeof(app_info->num_of_image_rows) +
+			sizeof(app_info->num_of_image_cols) +
+			sizeof(app_info->has_hybrid_data);
 
 	output_size = header_size + data_size * 2;
 
@@ -685,7 +657,6 @@ static void testing_standard_frame_output(bool image_only)
 
 	UNLOCK_BUFFER(testing_hcd->output);
 
-	LOG_DONE();
 	return;
 }
 
@@ -705,7 +676,6 @@ static int testing_dynamic_range_doze(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	cols = le2_to_uint(app_info->num_of_image_cols);
@@ -766,10 +736,7 @@ static int testing_dynamic_range_doze(void)
 			if (data > drt_hi_limits[row][col] ||
 					data < drt_lo_limits[row][col]) {
 				testing_hcd->result = false;
-				LOGE(tcm_hcd->pdev->dev.parent,
-						"ERR: data[%d][%d]=%d ,lim_h=%d,lim_l=%d\n",
-						row, col, data, drt_hi_limits[row][col], drt_lo_limits[row][col]);
-
+				break;
 			}
 			idx++;
 		}
@@ -789,7 +756,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -798,7 +764,6 @@ static int testing_dynamic_range_lpwg(void)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = tcm_hcd->set_dynamic_config(tcm_hcd,
 			DC_IN_WAKEUP_GESTURE_MODE,
 			1);
@@ -824,7 +789,6 @@ static int testing_dynamic_range_lpwg(void)
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -844,7 +808,6 @@ static int testing_dynamic_range(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -895,27 +858,18 @@ static int testing_dynamic_range(void)
 	buf = testing_hcd->resp.buf;
 	testing_hcd->result = true;
 
-	LOGV("--------------------------------------------\n");
 	for (row = 0; row < rows; row++) {
 		for (col = 0; col < cols; col++) {
 			data = le2_to_uint(&buf[idx * 2]);
 			if (data > drt_hi_limits[row][col] ||
 					data < drt_lo_limits[row][col]) {
 				testing_hcd->result = false;
-
-				printk("\n");
-				LOGE(tcm_hcd->pdev->dev.parent,
-						"ERR: data[%d][%d]=%d ,lim_h=%d,lim_l=%d\n",
-						row, col, data, drt_hi_limits[row][col], drt_lo_limits[row][col]);
+				dev_info(tcm_hcd->pdev->dev.parent, "row:%d col:%d data:%d outof range\n",
+						row, col, data);
+				break;
 			}
-			printk("%d ", data);
 			idx++;
 		}
-		printk("\n");
-	}
-	LOGV("--------------------------------------------\n");
-	if (lct_syna_save_rawdata_to_csv(buf, LCT_TP_SYNA_COL, LCT_TP_SYNA_ROW, LCT_TP_SYNA_DYR_SCV, 0) < 0) {
-		LOGV("Save '%s' Failed!\n", LCT_TP_SYNA_DYR_SCV);
 	}
 
 	UNLOCK_BUFFER(testing_hcd->resp);
@@ -932,7 +886,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -952,7 +905,6 @@ static int testing_noise_doze(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	cols = le2_to_uint(app_info->num_of_image_cols);
@@ -1021,7 +973,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1030,7 +981,6 @@ static int testing_noise_lpwg(void)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	retval = tcm_hcd->set_dynamic_config(tcm_hcd,
 			DC_IN_WAKEUP_GESTURE_MODE,
 			1);
@@ -1056,7 +1006,6 @@ static int testing_noise_lpwg(void)
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1076,7 +1025,6 @@ static int testing_noise(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -1116,26 +1064,17 @@ static int testing_noise(void)
 	buf = testing_hcd->resp.buf;
 	testing_hcd->result = true;
 
-	LOGV("--------------------------------------------\n");
 	for (row = 0; row < rows; row++) {
 		for (col = 0; col < cols; col++) {
 			data = (short)le2_to_uint(&buf[idx * 2]);
 			if (data > noise_limits[row][col]) {
+				dev_info(tcm_hcd->pdev->dev.parent, "row:%d col:%d data:%d outof range\n",
+						row, col, data);
 				testing_hcd->result = false;
-
-				printk("\n");
-				LOGE(tcm_hcd->pdev->dev.parent,
-						"ERR: data[%d][%d]=%d ,lim=%d\n",
-						row, col, data, noise_limits[row][col]);
+				break;
 			}
-			printk("%d ", data);
 			idx++;
 		}
-		printk("\n");
-	}
-	LOGV("--------------------------------------------\n");
-	if (lct_syna_save_rawdata_to_csv(buf, LCT_TP_SYNA_COL, LCT_TP_SYNA_ROW, LCT_TP_SYNA_NOISE_SCV, 0) < 0) {
-		LOGV("Save '%s' Failed!\n", LCT_TP_SYNA_DYR_SCV);
 	}
 
 	UNLOCK_BUFFER(testing_hcd->resp);
@@ -1152,7 +1091,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1167,7 +1105,6 @@ static void testing_open_short_detector_output(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -1175,9 +1112,9 @@ static void testing_open_short_detector_output(void)
 	data_size = (rows * cols + 7) / 8;
 
 	header_size = sizeof(app_info->num_of_buttons) +
-		sizeof(app_info->num_of_image_rows) +
-		sizeof(app_info->num_of_image_cols) +
-		sizeof(app_info->has_hybrid_data);
+			sizeof(app_info->num_of_image_rows) +
+			sizeof(app_info->num_of_image_cols) +
+			sizeof(app_info->has_hybrid_data);
 
 	output_size = header_size + data_size * 2;
 
@@ -1230,7 +1167,6 @@ static void testing_open_short_detector_output(void)
 
 	UNLOCK_BUFFER(testing_hcd->output);
 
-	LOG_DONE();
 	return;
 }
 
@@ -1248,7 +1184,6 @@ static int testing_open_short_detector(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -1320,7 +1255,6 @@ exit:
 				"Failed to do reset\n");
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1340,12 +1274,10 @@ static int testing_pt11(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
-
 	rows = le2_to_uint(app_info->num_of_image_rows);
 	cols = le2_to_uint(app_info->num_of_image_cols);
-
+	dev_info(tcm_hcd->pdev->dev.parent, "%s\n", __func__);
 	testing_get_frame_size_words(&image_size_words, true);
 
 	retval = testing_run_prod_test_item(TEST_PT11);
@@ -1391,27 +1323,18 @@ static int testing_pt11(void)
 	buf = testing_hcd->resp.buf;
 	testing_hcd->result = true;
 
-	LOGV("--------------------------------------------\n");
 	for (row = 0; row < rows; row++) {
 		for (col = 0; col < cols; col++) {
 			data = (short)le2_to_uint(&buf[idx * 2]);
 			if (data > pt11_hi_limits[row][col] ||
 					data < pt11_lo_limits[row][col]) {
+				dev_info(tcm_hcd->pdev->dev.parent, "row:%d, col: %d data:%d outof range:\n",
+					row, col, data);
 				testing_hcd->result = false;
-
-				printk("\n");
-				LOGE(tcm_hcd->pdev->dev.parent,
-						"ERR: data[%d][%d]=%d ,lim_h=%d,lim_l=%d\n",
-						row, col, data, pt11_hi_limits[row][col], pt11_lo_limits[row][col]);
+				break;
 			}
-			printk("%d ", data);
 			idx++;
 		}
-		printk("\n");
-	}
-	LOGV("--------------------------------------------\n");
-	if (lct_syna_save_rawdata_to_csv(buf, LCT_TP_SYNA_COL, LCT_TP_SYNA_ROW, LCT_TP_SYNA_PT11_SCV, 0) < 0) {
-		LOGV("Save '%s' Failed!\n", LCT_TP_SYNA_DYR_SCV);
 	}
 
 	UNLOCK_BUFFER(testing_hcd->resp);
@@ -1428,7 +1351,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1448,7 +1370,6 @@ static int testing_pt12(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -1513,7 +1434,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1533,7 +1453,6 @@ static int testing_pt13(void)
 	struct syna_tcm_app_info *app_info;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	app_info = &tcm_hcd->app_info;
 
 	rows = le2_to_uint(app_info->num_of_image_rows);
@@ -1598,7 +1517,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1608,7 +1526,6 @@ static int testing_reset_open(void)
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 	const struct syna_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	LOG_ENTRY();
 	if (bdata->reset_gpio < 0) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"Hardware reset unavailable\n");
@@ -1657,7 +1574,6 @@ run_app_firmware:
 				"Failed to run application firmware\n");
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1666,7 +1582,6 @@ static void testing_lockdown_output(void)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	LOCK_BUFFER(testing_hcd->output);
 	LOCK_BUFFER(testing_hcd->resp);
 
@@ -1699,7 +1614,6 @@ static void testing_lockdown_output(void)
 	UNLOCK_BUFFER(testing_hcd->resp);
 	UNLOCK_BUFFER(testing_hcd->output);
 
-	LOG_DONE();
 	return;
 }
 
@@ -1711,7 +1625,6 @@ static int testing_lockdown(void)
 	unsigned int limits_size;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	if (tcm_hcd->read_flash_data == NULL) {
 		LOGE(tcm_hcd->pdev->dev.parent,
 				"Unable to read from flash\n");
@@ -1752,7 +1665,6 @@ static int testing_lockdown(void)
 
 	testing_lockdown_output();
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -1761,7 +1673,6 @@ static void testing_trx_output(void)
 	int retval;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	LOCK_BUFFER(testing_hcd->output);
 	LOCK_BUFFER(testing_hcd->resp);
 
@@ -1794,7 +1705,6 @@ static void testing_trx_output(void)
 	UNLOCK_BUFFER(testing_hcd->resp);
 	UNLOCK_BUFFER(testing_hcd->output);
 
-	LOG_DONE();
 	return;
 }
 
@@ -1805,7 +1715,6 @@ static int testing_trx(enum test_code test_code)
 	unsigned int idx;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	switch (test_code) {
 	case TEST_TRX_TRX_SHORTS:
 	case TEST_TRX_GROUND_SHORTS:
@@ -1850,7 +1759,6 @@ exit:
 		}
 	}
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -1861,7 +1769,6 @@ static void testing_report(void)
 	unsigned int report_size;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-	LOG_ENTRY();
 	report_size = tcm_hcd->report.buffer.data_length;
 
 	LOCK_BUFFER(testing_hcd->report);
@@ -1902,154 +1809,88 @@ static void testing_report(void)
 	if (testing_hcd->report_index == testing_hcd->num_of_reports)
 		complete(&report_complete);
 
-	LOG_DONE();
 	return;
 }
 
-/* add syna tp selftest by wanghan 2018-8-21 start*/
-int lct_syna_tp_selftest(unsigned char cmd)
+static ssize_t i2c_test(void)
 {
 	int retval;
-	bool drt_result, pt11_result;
 	struct syna_tcm_hcd *tcm_hcd = testing_hcd->tcm_hcd;
 
-
-	drt_result = true;
-	pt11_result = true;
-
-
-	mutex_lock(&tcm_hcd->extif_mutex);
-	retval = testing_dynamic_range();
-	mutex_unlock(&tcm_hcd->extif_mutex);
+	retval = tcm_hcd->read_message(tcm_hcd,
+			NULL,
+			0);
 	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent, "Failed to do testing_dynamic_range test\n");
-		return -1;
-	}
-	if(!(testing_hcd->result)) {
-		LOGE(tcm_hcd->pdev->dev.parent, "Dynamic Range Selftest Failed\n");
-		drt_result = false;
-	}
-
-
-	LOGV("Delay 1000ms\n");
-	msleep(1000);
-
-
-	mutex_lock(&tcm_hcd->extif_mutex);
-	retval = testing_pt11();
-	mutex_unlock(&tcm_hcd->extif_mutex);
-	if (retval < 0) {
-		LOGE(tcm_hcd->pdev->dev.parent, "Failed to do testing_pt11 test\n");
-		return -1;
-	}
-	if(!(testing_hcd->result)) {
-		LOGE(tcm_hcd->pdev->dev.parent, "PT11 Selftest Failed\n");
-		pt11_result = false;
-	}
-
-	if (cmd == TP_SELFTEST_CMD_LONGCHEER_MMI)
-		goto Longcheer_mmi;
-	else if (cmd == TP_SELFTEST_CMD_XIAOMI_I2C)
-		goto xiaomi_i2c;
-	else if (cmd == TP_SELFTEST_CMD_XIAOMI_OPEN)
-		goto xiaomi_open;
-	else if (cmd == TP_SELFTEST_CMD_XIAOMI_SHORT)
-		goto xiaomi_short;
-	else
-		return 0;
-
-Longcheer_mmi:
-xiaomi_i2c:
-	if (drt_result && pt11_result) {
-		LOGV("tp selftest Passed\n");
-		return 2;
-	} else {
-		LOGV("tp selftest Failed\n");
-		return 1;
-	}
-xiaomi_open:
-xiaomi_short:
-	if (pt11_result) {
-		LOGV("PT11 Test Passed\n");
-		return 2;
-	} else {
-		LOGV("PT11 Test Failed\n");
-		return 1;
-	}
-}
-
-static int32_t lct_syna_save_rawdata_to_csv(unsigned char *buf, uint8_t x_ch, uint8_t y_ch, const char *file_path, uint32_t offset)
-{
-	int retval, data;
-	loff_t pos = 0;
-	char *fbufp = NULL;
-	mm_segment_t org_fs;
-	struct file *fp = NULL;
-	uint32_t output_len = 0;
-	int32_t x = 0, y = 0, iArrayIndex = 0;
-
-	LOG_ENTRY();
-	fbufp = (char *)kzalloc(1024*8, GFP_KERNEL);
-	if (!fbufp) {
-		LOGV("kzalloc for fbufp failed!\n");
-		return -ENOMEM;
-	}
-
-	for (y = 0; y < y_ch; y++) {
-		for (x = 0; x < x_ch; x++) {
-			iArrayIndex = y * x_ch + x;
-			data = (short)le2_to_uint(&buf[iArrayIndex * 2]);
-			sprintf(fbufp + iArrayIndex * 7 + y * 2, "%5d, ", data);
-		}
-		sprintf(fbufp + (iArrayIndex + 1) * 7 + y * 2, "\r\n");
-	}
-
-	org_fs = get_fs();
-	set_fs(KERNEL_DS);
-	fp = filp_open(file_path, O_RDWR | O_CREAT, 0666);
-	if (IS_ERR_OR_NULL(fp)) {
-		LOGV("open %s failed, fp = %p\n", file_path, fp);
-		retval = -1;
-		goto err_open_fail;
-	}
-
-	output_len = y_ch * x_ch * 7 + y_ch * 2;
-
-	pos = offset;
-	retval = vfs_write(fp, (char __user *)fbufp, output_len, &pos);
-	if (retval <= 0) {
-		LOGV("write %s failed, retval = %d\n", file_path, retval);
-		retval = -1;
-		goto err_vfs_write_fail;
-	}
-
-	retval = 0;
-
-err_vfs_write_fail:
-	if (fp) {
-		filp_close(fp, NULL);
-		fp = NULL;
-	}
-err_open_fail:
-	set_fs(org_fs);
-	if (fbufp) {
-		kfree(fbufp);
-		fbufp = NULL;
-	}
-	LOG_DONE();
+		LOGE(tcm_hcd->pdev->dev.parent,
+				"Failed to read message\n");
+		testing_hcd->result_type = TEST_FAILED;
+	} else
+		testing_hcd->result_type = TEST_OK;
 	return retval;
 }
-/* add syna tp selftest by wanghan 2018-8-21 end*/
+
+static ssize_t syna_selftest_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+{
+	char tmp[5];
+
+	if (!testing_hcd)
+		return 0;
+	if (*pos != 0)
+		return 0;
+
+	snprintf(tmp, sizeof(testing_hcd->result_type), "%d\n", testing_hcd->result_type);
+	if (copy_to_user(buf, tmp, strlen(tmp))) {
+		return -EFAULT;
+	}
+
+	*pos += strlen(tmp);
+
+	return strlen(tmp);
+}
+
+static ssize_t syna_selftest_write(struct file *file, const char __user *buf, size_t count, loff_t *pos)
+{
+	int retval;
+	char tmp[6];
+
+	if (!testing_hcd  || count > sizeof(tmp)) {
+		retval = -EINVAL;
+		testing_hcd->result_type = TEST_INVALID;
+		goto out;
+	}
+
+	if (copy_from_user(tmp, buf, count)) {
+		retval = -EFAULT;
+		goto out;
+	}
+
+	if (!strncmp(tmp, "short", 5) || !strncmp(tmp, "open", 4)) {
+		testing_pt11();
+		if (testing_hcd->result)
+			testing_hcd->result_type = TEST_OK;
+		else
+			testing_hcd->result_type = TEST_FAILED;
+	} else if (!strncmp(tmp, "i2c", 3))
+		retval = i2c_test();
+
+out:
+	if (retval >= 0)
+		retval = count;
+
+	return retval;
+}
+
+static const struct file_operations syna_selftest_ops = {
+	.read		= syna_selftest_read,
+	.write		= syna_selftest_write,
+};
 
 static int testing_init(struct syna_tcm_hcd *tcm_hcd)
 {
 	int retval;
 	int idx;
+	static bool proc_already;
 
-	LOG_ENTRY();
-	/* add syna tp selftest by wanghan 2018-8-21 start*/
-	lct_tp_selftest_init(lct_syna_tp_selftest);
-	/* add syna tp selftest by wanghan 2018-8-21 end*/
 	testing_hcd = kzalloc(sizeof(*testing_hcd), GFP_KERNEL);
 	if (!testing_hcd) {
 		LOGE(tcm_hcd->pdev->dev.parent,
@@ -2092,8 +1933,11 @@ static int testing_init(struct syna_tcm_hcd *tcm_hcd)
 				"Failed to create sysfs bin file\n");
 		goto err_sysfs_create_bin_file;
 	}
+	if (!proc_already) {
+		proc_already = true;
+		proc_create("tp_selftest", 0644, NULL, &syna_selftest_ops);
+	}
 
-	LOG_DONE();
 	return 0;
 
 err_sysfs_create_bin_file:
@@ -2113,7 +1957,6 @@ err_sysfs_create_dir:
 	kfree(testing_hcd);
 	testing_hcd = NULL;
 
-	LOG_DONE();
 	return retval;
 }
 
@@ -2121,7 +1964,6 @@ static int testing_remove(struct syna_tcm_hcd *tcm_hcd)
 {
 	int idx;
 
-	LOG_ENTRY();
 	if (!testing_hcd)
 		goto exit;
 
@@ -2144,7 +1986,6 @@ static int testing_remove(struct syna_tcm_hcd *tcm_hcd)
 exit:
 	complete(&testing_remove_complete);
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -2152,26 +1993,22 @@ static int testing_reset(struct syna_tcm_hcd *tcm_hcd)
 {
 	int retval;
 
-	LOG_ENTRY();
 	if (!testing_hcd) {
 		retval = testing_init(tcm_hcd);
 		return retval;
 	}
 
-	LOG_DONE();
 	return 0;
 }
 
 static int testing_syncbox(struct syna_tcm_hcd *tcm_hcd)
 {
-	LOG_ENTRY();
 	if (!testing_hcd)
 		return 0;
 
 	if (tcm_hcd->report.id == testing_hcd->report_type)
 		testing_report();
 
-	LOG_DONE();
 	return 0;
 }
 
@@ -2189,33 +2026,19 @@ static struct syna_tcm_module_cb testing_module = {
 
 static int __init testing_module_init(void)
 {
-	int retval;
-	LOG_ENTRY();
-	/* add check F7A LCM by wanghan start */
-	if(!lct_syna_verify_flag)
-		return -ENODEV;
-	/* add check F7A LCM by wanghan end */
-	LOGV("__init testing module\n");
-	retval = syna_tcm_add_module(&testing_module, true);
-	if(retval) {
-		LOGV("syna_tcm_add_module failed! retval = %d\n", retval);
-	}
-	LOG_DONE();
-	return retval;
+	return syna_tcm_add_module(&testing_module, true);
 }
 
 static void __exit testing_module_exit(void)
 {
-	LOG_ENTRY();
 	syna_tcm_add_module(&testing_module, false);
 
 	wait_for_completion(&testing_remove_complete);
 
-	LOG_DONE();
 	return;
 }
 
-module_init(testing_module_init);
+late_initcall(testing_module_init);
 module_exit(testing_module_exit);
 
 MODULE_AUTHOR("Synaptics, Inc.");
