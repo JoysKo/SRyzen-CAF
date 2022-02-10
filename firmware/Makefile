@@ -140,6 +140,23 @@ fw-shipped-$(CONFIG_TOUCHSCREEN_FT5X46) += ft5446_ofilm.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_GT9XX) += goodix_firmware.bin
 fw-shipped-$(CONFIG_TOUCHSCREEN_NT36XXX) += novatek_nt36672_d2t.fw
 
+# HMI_L8867_A01
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_D2S) += novatek/tianma_nt36672_miui_d2s.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_D2S) += novatek/jdi_nt36672_miui_d2s.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_F7A) += novatek/tianma_nt36672a_miui_f7a.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_F7A) += novatek/shenchao_nt36672a_miui_f7a.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_REFLASH) += synaptics/boe_td4320_i2c_F7A.img
+
+# HMI_L6662_A01
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_A) += novatek/shenchao_nt36672a_miui_e7t.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_A) += novatek/tianma_nt36672a_miui_e7t.bin
+
+# HMI_L6653_A01
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_E7S_FW_UPDATE) += synaptics/tianma_td4310_miui_e7s.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_E7S_FW_UPDATE) += synaptics/shenchao_td4310_miui_e7s.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_E7S) += novatek/nt36672_miui_e7s.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_NVT_E7S) += novatek/hx_nt36672_miui_e7s.bin
+
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
 quiet_cmd_ihex  = IHEX    $@
