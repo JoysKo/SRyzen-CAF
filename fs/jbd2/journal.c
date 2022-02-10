@@ -4,7 +4,7 @@
  * Written by Stephen C. Tweedie <sct@redhat.com>, 1998
  *
  * Copyright 1998 Red Hat corp --- All Rights Reserved
- * Copyright (C) 2020 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This file is part of the Linux kernel and is made available under
  * the terms of the GNU General Public License, version 2, or at your
@@ -727,7 +727,7 @@ int jbd2_transaction_need_wait(journal_t *journal, tid_t tid)
 		}
 	} else if (!(journal->j_committing_transaction &&
 		journal->j_committing_transaction->t_tid == tid))
-			need_to_wait = 0;
+	need_to_wait = 0;
 	read_unlock(&journal->j_state_lock);
 	return need_to_wait;
 }
