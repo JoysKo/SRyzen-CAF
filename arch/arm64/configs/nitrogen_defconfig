@@ -1,5 +1,8 @@
 CONFIG_LOCALVERSION="-Syberia-CAF-v.1.0"
 # CONFIG_LOCALVERSION_AUTO is not set
+# add enable ksu
+CONFIG_KSU=y
+# CONFIG_KPROBES is not set
 # CONFIG_USELIB is not set
 CONFIG_NO_HZ=y
 CONFIG_HIGH_RES_TIMERS=y
